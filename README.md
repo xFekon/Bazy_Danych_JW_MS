@@ -3,9 +3,16 @@ manager finansów
 
 Wykorzystujemy Python 3.14.2
 
-MySQL 9.5
+MySQL 9.5 community serwer
 MySQL Workbench
-Trzeba stworzyć baze danych na swoim komputerze. Podczas konfiguracji upewnić sie że port to 3306, nadać hasło które się zapamięta np.1234 i potem uzupełnić db_config u siebie bo jest w .gitignore
+Trzeba stworzyć baze danych na swoim komputerze. Podczas konfiguracji upewnić sie że port to 3306, nadać hasło które się zapamięta np.1234 i potem uzupełnić db_config u siebie bo jest w .gitignore:
+
+DB_HOST = "localhost"
+DB_USER = "root"
+DB_PASSWORD = "123456"
+DB_NAME = "wydatki"
+DB_PORT = 3306
+
 
 w SQL
 CREATE DATABASE IF NOT EXISTS wydatki;
@@ -38,7 +45,7 @@ git commit -m "opis_zmian"
 git push
 
 test:
-z głównego folderu wykonujemy(terminal python'owy):
+z głównego folderu wykonujemy:
 
 python -m database.db_connection
 powinno pokazać połączoono jeśli działa
