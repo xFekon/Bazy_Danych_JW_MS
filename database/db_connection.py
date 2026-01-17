@@ -1,19 +1,22 @@
 import mysql.connector
-from database.db_config import DB_HOST, DB_USER, DB_PASSWORD, DB_NAME, DB_PORT
+from mysql.connector import errorcode
 
-def get_connection():
-    return mysql.connector.connect(
-        host=DB_HOST,
-        user=DB_USER,
-        password=DB_PASSWORD,
-        database=DB_NAME,
-        port=DB_PORT
-    )
+# Konfiguracja połączenia MySQL
+DB_HOST = 'localhost'
+DB_USER = 'root'
+DB_PASSWORD = '1364'
+DB_NAME = 'finance_tracker'
 
-if __name__ == "__main__":
+def get_db_connection():
+    """Tworzy połączenie z konkretną bazą danych aplikacji."""
     try:
-        conn = get_connection()
-        print("✅ Połączono z bazą danych!")
-        conn.close()
-    except Exception as e:
-        print("❌ Błąd połączenia:", e)
+        connection = mysql.connector.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME
+        )
+        return connection
+    except mysql.connector.Error as err:
+        print(f"Błąd połączenia z bazą danych: {err}")
+        return None
