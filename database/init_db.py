@@ -1,66 +1,45 @@
 import mysql.connector
 from mysql.connector import errorcode
-# Importujemy konfigurację z pliku obok
 from database.db_connection import DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
 
-# ENUM-y (dla definicji tabel)
+# ENUM-y
 ACCOUNT_TYPES = ['cash', 'bank_account', 'savings', 'credit_card', 'investment']
 TRANSACTION_TYPES = ['income', 'expense', 'transfer']
 
 def create_server_connection():
-    """Łączy się z serwerem MySQL bez wybierania bazy danych (do jej utworzenia)."""
     try:
-        return mysql.connector.connect(
-            host=DB_HOST,
-            user=DB_USER,
-            password=DB_PASSWORD
-        )
+        return mysql.connector.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD)
     except mysql.connector.Error as err:
-        print(f"Błąd połączenia z serwerem MySQL: {err}")
+        print(f"Błąd połączenia z serwerem: {err}")
         return None
 
 def create_db_connection():
-    """Łączy się z konkretną bazą danych (do tworzenia tabel)."""
     try:
-        return mysql.connector.connect(
-            host=DB_HOST,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            database=DB_NAME
-        )
+        return mysql.connector.connect(host=DB_HOST, user=DB_USER, password=DB_PASSWORD, database=DB_NAME)
     except mysql.connector.Error as err:
-        print(f"Błąd połączenia z bazą {DB_NAME}: {err}")
+        print(f"Błąd połączenia z bazą: {err}")
         return None
 
 def init_database():
-    print("=== Rozpoczynam inicjalizację bazy danych ===")
+    print("=== Inicjalizacja Bazy Danych (Advanced) ===")
     
-    # 1. Utworzenie bazy danych
+    # 1. Tworzenie bazy
     conn = create_server_connection()
-    if conn is None: return
-    
+    if not conn: return
     cursor = conn.cursor()
-    try:
-        cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_NAME}")
-        print(f" -> Baza danych '{DB_NAME}' jest gotowa.")
-    except mysql.connector.Error as err:
-        print(f"Błąd tworzenia bazy: {err}")
-        return
-    finally:
-        cursor.close()
-        conn.close()
+    cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_NAME}")
+    cursor.close()
+    conn.close()
 
-    # 2. Utworzenie tabel
+    # 2. Tworzenie tabel
     conn = create_db_connection()
-    if conn is None: return
+    if not conn: return
     cursor = conn.cursor()
 
-    # Przygotowanie stringów do ENUM w SQL
     account_enum = ', '.join([f"'{t}'" for t in ACCOUNT_TYPES])
     trx_enum = ', '.join([f"'{t}'" for t in TRANSACTION_TYPES])
 
     TABLES = {}
-    
     TABLES['users'] = """
         CREATE TABLE `users` (
           `user_id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -70,7 +49,6 @@ def init_database():
           `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB
     """
-
     TABLES['accounts'] = f"""
         CREATE TABLE `accounts` (
           `account_id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -84,19 +62,17 @@ def init_database():
           FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
         ) ENGINE=InnoDB
     """
-
     TABLES['categories'] = """
         CREATE TABLE `categories` (
           `category_id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-          `user_id` INT NULL COMMENT 'NULL dla kategorii domyślnych',
+          `user_id` INT NULL,
           `name` VARCHAR(100) NOT NULL,
-          `type` VARCHAR(20) COMMENT 'expense / income',
+          `type` VARCHAR(20),
           `parent_id` INT DEFAULT NULL,
           FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
           FOREIGN KEY (`parent_id`) REFERENCES `categories` (`category_id`) ON DELETE SET NULL
         ) ENGINE=InnoDB
     """
-
     TABLES['savings_goals'] = """
         CREATE TABLE `savings_goals` (
           `goal_id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -111,7 +87,6 @@ def init_database():
           FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
         ) ENGINE=InnoDB
     """
-
     TABLES['budgets'] = """
         CREATE TABLE `budgets` (
           `budget_id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -127,7 +102,6 @@ def init_database():
           FOREIGN KEY (`category_id`) REFERENCES `categories` (`category_id`) ON DELETE CASCADE
         ) ENGINE=InnoDB
     """
-
     TABLES['transactions'] = f"""
         CREATE TABLE `transactions` (
           `transaction_id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -150,7 +124,6 @@ def init_database():
           FOREIGN KEY (`goal_id`) REFERENCES `savings_goals` (`goal_id`) ON DELETE SET NULL
         ) ENGINE=InnoDB
     """
-
     TABLES['recurring_payments'] = f"""
         CREATE TABLE `recurring_payments` (
           `recurring_id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -172,46 +145,107 @@ def init_database():
         ) ENGINE=InnoDB
     """
 
-    # Kolejność tworzenia (ważna ze względu na klucze obce!)
-    order = ['users', 'accounts', 'categories', 'savings_goals', 'budgets', 'transactions', 'recurring_payments']
-
-    for name in order:
+    for name, sql in TABLES.items():
         try:
-            print(f" -> Tworzę tabelę: {name}")
-            cursor.execute(TABLES[name])
+            cursor.execute(sql)
+            print(f" -> Tabela {name}: OK")
         except mysql.connector.Error as err:
             if err.errno == errorcode.ER_TABLE_EXISTS_ERROR:
-                print(f"    [INFO] Tabela {name} już istnieje.")
+                print(f" -> Tabela {name}: Już istnieje")
             else:
-                print(f"    [BŁĄD] Nie można utworzyć tabeli {name}: {err}")
+                print(f"Error {name}: {err}")
 
-    # 3. Seedowanie (Dodanie domyślnych kategorii, jeśli ich brak)
+    # ==========================================
+    # 1. WIDOK (VIEW): Użytkownicy bez haseł
+    # ==========================================
     try:
-        cursor.execute("SELECT count(*) FROM categories")
-        if cursor.fetchone()[0] == 0:
-            print(" -> Dodaję domyślne kategorie...")
-            default_cats = [
-                ('Jedzenie', 'expense'), 
-                ('Transport', 'expense'), 
-                ('Mieszkanie', 'expense'), 
-                ('Rozrywka', 'expense'),
-                ('Zdrowie', 'expense'),
-                ('Edukacja', 'expense'),
-                ('Zakupy', 'expense'),
-                ('Wypłata', 'income'), 
-                ('Prezent', 'income'),
-                ('Inne', 'expense')
-            ]
-            sql = "INSERT INTO categories (name, type, user_id) VALUES (%s, %s, NULL)"
-            cursor.executemany(sql, default_cats)
-            conn.commit()
-            print(" -> Kategorie dodane.")
+        cursor.execute("DROP VIEW IF EXISTS view_public_users")
+        sql_view = """
+        CREATE VIEW view_public_users AS
+        SELECT user_id, username, created_at, main_currency
+        FROM users
+        """
+        cursor.execute(sql_view)
+        print(" -> Widok 'view_public_users': UTWORZONO")
     except Exception as e:
-        print(f"Błąd podczas dodawania danych startowych: {e}")
+        print(f"Błąd widoku: {e}")
+
+    # ==========================================
+    # 2. TRIGGER: Walidacja przed Insertem
+    # ==========================================
+    # Blokada dodawania transakcji dla nieaktywnych kont
+    try:
+        cursor.execute("DROP TRIGGER IF EXISTS before_transaction_insert")
+        sql_trigger = """
+        CREATE TRIGGER before_transaction_insert
+        BEFORE INSERT ON transactions
+        FOR EACH ROW
+        BEGIN
+            DECLARE acc_active BOOLEAN;
+            SELECT is_active INTO acc_active FROM accounts WHERE account_id = NEW.account_id;
+            
+            IF acc_active = FALSE THEN
+                SIGNAL SQLSTATE '45000'
+                SET MESSAGE_TEXT = 'Nie można dodać transakcji do nieaktywnego konta!';
+            END IF;
+        END;
+        """
+        cursor.execute(sql_trigger)
+        print(" -> Trigger 'before_transaction_insert': UTWORZONO")
+    except Exception as e:
+        print(f"Błąd triggera: {e}")
+
+    # ==========================================
+    # 3. PROCEDURA + TRANSAKCJA
+    # Rejestracja usera + Domyślne Konto + Kategorie
+    # ==========================================
+    try:
+        cursor.execute("DROP PROCEDURE IF EXISTS register_user_complex")
+        sql_proc = """
+        CREATE PROCEDURE register_user_complex(
+            IN p_username VARCHAR(100), 
+            IN p_password VARCHAR(255)
+        )
+        BEGIN
+            DECLARE new_user_id INT;
+            
+            -- Obsługa błędów SQL: w razie błędu ROLLBACK
+            DECLARE EXIT HANDLER FOR SQLEXCEPTION
+            BEGIN
+                ROLLBACK;
+                RESIGNAL;
+            END;
+
+            START TRANSACTION;
+                -- 1. Dodaj Usera
+                INSERT INTO users (username, password) VALUES (p_username, p_password);
+                SET new_user_id = LAST_INSERT_ID();
+                
+                -- 2. Dodaj domyślne konto "Portfel"
+                INSERT INTO accounts (user_id, name, type, current_balance) 
+                VALUES (new_user_id, 'Portfel (Gotówka)', 'cash', 0.00);
+
+                -- 3. Dodaj podstawowe kategorie
+                INSERT INTO categories (user_id, name, type) VALUES 
+                (new_user_id, 'Jedzenie', 'expense'),
+                (new_user_id, 'Transport', 'expense'),
+                (new_user_id, 'Rozrywka', 'expense'),
+                (new_user_id, 'Wypłata', 'income');
+                
+            COMMIT;
+            
+            -- Zwróć ID nowego użytkownika
+            SELECT new_user_id;
+        END;
+        """
+        cursor.execute(sql_proc)
+        print(" -> Procedura 'register_user_complex': UTWORZONO")
+    except Exception as e:
+        print(f"Błąd procedury: {e}")
 
     cursor.close()
     conn.close()
-    print("=== Inicjalizacja zakończona pomyślnie ===")
+    print("=== Inicjalizacja zakończona ===")
 
 if __name__ == "__main__":
     init_database()

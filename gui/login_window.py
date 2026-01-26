@@ -22,7 +22,7 @@ class LoginWindow(ctk.CTkFrame):
     def setup_ui(self):
         # Tytuł
         ctk.CTkLabel(self.card, text="Witaj!", font=("Roboto Medium", 24)).pack(pady=(40, 10))
-        ctk.CTkLabel(self.card, text="Zaloguj się do Finance AI", font=("Roboto", 12), text_color="gray").pack(pady=(0, 30))
+        ctk.CTkLabel(self.card, text="Zaloguj się do Finance Tracker", font=("Roboto", 12), text_color="gray").pack(pady=(0, 30))
 
         # Pola
         self.entry_user = ctk.CTkEntry(self.card, placeholder_text="Nazwa użytkownika", width=250, height=40)

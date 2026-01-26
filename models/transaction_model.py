@@ -2,6 +2,7 @@ from database.db_connection import get_db_connection
 
 class TransactionModel:
     def add_transaction(self, user_id, account_id, category_id, t_type, amount, date_val, desc, transfer_to_id=None, goal_id=None):
+        # ... (Ta metoda pozostaje bez zmian, wklej ją z poprzednich wersji) ...
         conn = get_db_connection()
         if not conn: return False
         cursor = conn.cursor()
@@ -16,7 +17,7 @@ class TransactionModel:
             """
             cursor.execute(sql_insert, (user_id, account_id, category_id, t_type, amount, date_val, desc, transfer_to_id, goal_id))
 
-            # Aktualizacja sald kont
+            # Aktualizacja sald
             if t_type == 'expense':
                 cursor.execute("UPDATE accounts SET current_balance = current_balance - %s WHERE account_id = %s", (amount, account_id))
             elif t_type == 'income':
@@ -25,9 +26,7 @@ class TransactionModel:
                 cursor.execute("UPDATE accounts SET current_balance = current_balance - %s WHERE account_id = %s", (amount, account_id))
                 cursor.execute("UPDATE accounts SET current_balance = current_balance + %s WHERE account_id = %s", (amount, transfer_to_id))
 
-            # Aktualizacja Celu Oszczędnościowego (jeśli dotyczy) 
             if goal_id:
-                # Jeśli to wpłata na cel, zwiększamy saved_amount
                 cursor.execute("UPDATE savings_goals SET saved_amount = saved_amount + %s WHERE goal_id = %s", (amount, goal_id))
 
             conn.commit()
@@ -40,7 +39,6 @@ class TransactionModel:
             conn.close()
 
     def get_recent(self, user_id, limit=20):
-        # ... (bez zmian z poprzedniej wersji, dodaj tylko ewentualnie goal_id do selecta) ...
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         sql = """
@@ -57,31 +55,76 @@ class TransactionModel:
         res = cursor.fetchall()
         conn.close()
         return res
-    
+
     def get_monthly_expenses(self, user_id, category_id=None):
-        """Zwraca listę: [{'month': '2025-01', 'total': 1200.50}, ...]"""
+        # ... (Bez zmian, skopiuj z poprzedniej wersji) ...
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        
-        # Filtrujemy tylko wydatki (expense)
         query = """
             SELECT DATE_FORMAT(transaction_date, '%Y-%m') as month_str, SUM(amount) as total
             FROM transactions 
             WHERE user_id = %s AND type = 'expense'
         """
         params = [user_id]
-        
         if category_id:
             query += " AND category_id = %s"
             params.append(category_id)
-            
         query += " GROUP BY month_str ORDER BY month_str ASC LIMIT 12"
-        
         try:
             cursor.execute(query, tuple(params))
             return cursor.fetchall()
+        except Exception: return []
+        finally: conn.close()
+
+    # --- NOWA METODA ---
+    def delete_transaction(self, transaction_id):
+        conn = get_db_connection()
+        if not conn: return False
+        cursor = conn.cursor(dictionary=True)
+
+        try:
+            cursor.execute("START TRANSACTION")
+
+            # 1. Pobierz dane o usuwanej transakcji, aby cofnąć saldo
+            cursor.execute("SELECT * FROM transactions WHERE transaction_id = %s", (transaction_id,))
+            trx = cursor.fetchone()
+            
+            if not trx:
+                conn.rollback()
+                return False
+
+            amount = trx['amount']
+            acc_id = trx['account_id']
+            t_type = trx['type']
+            transfer_to = trx['transfer_to_account_id']
+            goal_id = trx['goal_id']
+
+            # 2. Cofnij zmiany salda (Rewers)
+            if t_type == 'expense':
+                # Był wydatek (minus), więc przy usuwaniu dodajemy z powrotem
+                cursor.execute("UPDATE accounts SET current_balance = current_balance + %s WHERE account_id = %s", (amount, acc_id))
+            
+            elif t_type == 'income':
+                # Był przychód (plus), więc przy usuwaniu odejmujemy
+                cursor.execute("UPDATE accounts SET current_balance = current_balance - %s WHERE account_id = %s", (amount, acc_id))
+            
+            elif t_type == 'transfer' and transfer_to:
+                # Był transfer (zródło minus, cel plus), więc odwracamy
+                cursor.execute("UPDATE accounts SET current_balance = current_balance + %s WHERE account_id = %s", (amount, acc_id))
+                cursor.execute("UPDATE accounts SET current_balance = current_balance - %s WHERE account_id = %s", (amount, transfer_to))
+
+            # Cofnij cel oszczędnościowy (jeśli dotyczy)
+            if goal_id:
+                cursor.execute("UPDATE savings_goals SET saved_amount = saved_amount - %s WHERE goal_id = %s", (amount, goal_id))
+
+            # 3. Usuń właściwy rekord
+            cursor.execute("DELETE FROM transactions WHERE transaction_id = %s", (transaction_id,))
+
+            conn.commit()
+            return True
         except Exception as e:
-            print(f"Błąd raportu: {e}")
-            return []
+            conn.rollback()
+            print(f"Delete error: {e}")
+            return False
         finally:
             conn.close()
